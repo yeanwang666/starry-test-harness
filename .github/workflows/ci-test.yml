@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARCH: aarch64
-      STARRYOS_ROOT: StarryOS
-      ENABLE_STARRYOS_BUILD: ${{ vars.ENABLE_STARRYOS_BUILD || '0' }}
-      ENABLE_STARRYOS_BOOT: ${{ vars.ENABLE_STARRYOS_BOOT || '0' }}
+      STARRYOS_REMOTE: https://github.com/yeanwang666/StarryOS.git
+      STARRYOS_REF: main
+      STARRYOS_ROOT: ${{ github.workspace }}/.cache/StarryOS
     steps:
       - uses: actions/checkout@v4
 
@@ -29,13 +29,16 @@ jobs:
         with:
           shared-key: starry-ci-harness
 
-      - name: Checkout StarryOS (可选)
-        if: ${{ env.ENABLE_STARRYOS_BUILD == '1' || env.ENABLE_STARRYOS_BOOT == '1' }}
-        uses: actions/checkout@v4
+      - name: Install musl toolchain
+        uses: arceos-org/setup-musl@v1
         with:
-          repository: yeanwang666/StarryOS
-          path: StarryOS
-          submodules: recursive
+          arch: ${{ env.ARCH }}
+
+      - name: Install QEMU
+        uses: arceos-org/setup-qemu@v1
+        with:
+          version: 10.1.0
+          arch_list: ${{ env.ARCH }}
 
       - name: 执行 ci-test
         run: make ci-test run

@@ -8,7 +8,7 @@ Rust 原型仓库，用于为 Kylin-X / Starry OS 构建分层自动化测试体
 - **Make 统一入口**：遵循“`make <suite> <action>`”约定，例如 `make ci-test run`、`make daily-test publish`。
 - **分层目录**：`tests/ci|stress|daily` 保存 manifest（`suite.toml`）和脚本，开发/测试可直接追加用例。
 - **日志可追踪**：所有执行输出落在 `logs/<suite>/`，失败时还会写入 `error.log` 方便 CI 收集。
-- **StarryOS 集成**：`ci-test` 复用了 upstream `scripts/ci-test.py` 的启动流程，可切换到真实构建/QEMU 启动。
+- **StarryOS 集成**：`ci-test` 会自动从 GitHub 拉取 StarryOS、编译镜像并在 QEMU 中验证 BusyBox Shell。
 - **AArch64 关注**：默认面向 AArch64，后续再考虑别的架构。
 
 ## 仓库结构
@@ -63,10 +63,13 @@ make build                # 仅编译 Rust harness
 
 ## StarryOS 集成参数
 
-- `STARRYOS_ROOT`：指向 StarryOS 源码目录，默认 `../StarryOS`。
-- `ENABLE_STARRYOS_BUILD=1`：让 `scripts/ci_build_starry.sh` 真正执行 `make ARCH=<arch> build && make img`；默认 0（仅写入元数据，方便快速验证 harness）。
-- `ENABLE_STARRYOS_BOOT=1`：让 `tests/ci/cases/starry_boot.sh` 调用 `StarryOS/scripts/ci-test.py`，在 QEMU 中确认 BusyBox shell；默认 0（只打印提示）。
-- 上述变量既可在本地 `export`，也可在 CI（如 GitHub Environments/Secrets）里配置，方便随场景切换行为。
+- `STARRYOS_REMOTE`：要拉取的 Git 仓库地址，默认 `https://github.com/yeanwang666/StarryOS.git`。
+- `STARRYOS_REF`：构建所用的分支/标签/提交，默认 `main`。
+- `STARRYOS_ROOT`：StarryOS 的本地缓存目录，默认 `<repo>/.cache/StarryOS`。
+- `STARRYOS_DEPTH`：浅克隆深度，可选；默认 0 表示完整历史。
+- `CI_TEST_SCRIPT`：QEMU 启动脚本路径，默认 `${STARRYOS_ROOT}/scripts/ci-test.py`。
+
+只要按需覆盖这些变量，本地或 CI 中执行 `make ci-test run` 就能自动完成“拉代码 → 构建 → 制作 rootfs → QEMU 启动验证”的完整链路。
 
 ## 添加/维护用例
 
@@ -82,13 +85,13 @@ make build                # 仅编译 Rust harness
 
 ## CI 流程
 
-- `.github/workflows/ci-test.yml` 参考 StarryOS 的 workflow：包含并发保护、Rust 缓存与可选的 StarryOS checkout。
-- 通过仓库/环境变量 `ENABLE_STARRYOS_BUILD`、`ENABLE_STARRYOS_BOOT` 控制是否真正编译 + 启动 StarryOS。
-- 默认值为 0，仅运行 harness + 本地脚本；下一步再写真的
+- `.github/workflows/ci-test.yml` 参考 StarryOS 的 workflow：并发保护、Rust 缓存、Musl 工具链与 QEMU 安装均自动完成。
+- 步骤仅需 checkout 本仓库；`scripts/ci_build_starry.sh` 会 clone StarryOS、同步子模块并执行 `make build` / `make img`。
+- 若想固定特定分支或自建镜像，可在 workflow env 中覆盖 `STARRYOS_REMOTE` / `STARRYOS_REF` / `STARRYOS_ROOT`。
 
 ## 下一步正在看
 
-1. **替换 build_stub**：对接真实的 Starry OS 编译、打包和 QEMU/实机启动逻辑。
+1. **扩展其他层级**：将 stress/daily/manual 也切换到真实 StarryOS 构建 / 执行路径。
 2. **引入超时/并发调度**：在 Rust harness 中监听 case 运行时间，必要时强制 kill。
 3. **CI 集成**：在 PR pipeline 中运行 `make ci-test run`，nightly 调 `make stress-test run`，灰度阶段调 `make daily-test run && make daily-test publish`。
 4. **用例扩展**：把 musl/调度/资源抢占等真实脚本或 Rust 二进制放入 `tests/<tier>/cases/`。

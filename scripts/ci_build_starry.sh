@@ -1,53 +1,76 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 SUITE=${1:-ci-test}
 ARCH=${ARCH:-aarch64}
-STARRYOS_ROOT=${STARRYOS_ROOT:-../StarryOS}
-ENABLE_STARRYOS_BUILD=${ENABLE_STARRYOS_BUILD:-0}
-ARTIFACT_DIR="artifacts/${SUITE}"
-mkdir -p "${ARTIFACT_DIR}"
+STARRYOS_REMOTE=${STARRYOS_REMOTE:-https://github.com/yeanwang666/StarryOS.git}
+STARRYOS_REF=${STARRYOS_REF:-main}
+STARRYOS_ROOT=${STARRYOS_ROOT:-${REPO_ROOT}/.cache/StarryOS}
+STARRYOS_DEPTH=${STARRYOS_DEPTH:-0}
+ARTIFACT_DIR="${REPO_ROOT}/artifacts/${SUITE}"
+LOG_FILE="${ARTIFACT_DIR}/build.log"
 
-ts() {
-  date -u +%Y%m%d-%H%M%S
-}
+if [[ "${STARRYOS_ROOT}" != /* ]]; then
+  STARRYOS_ROOT="${REPO_ROOT}/${STARRYOS_ROOT}"
+fi
+
+mkdir -p "${ARTIFACT_DIR}" "$(dirname "${STARRYOS_ROOT}")"
+: >"${LOG_FILE}"
+exec > >(tee -a "${LOG_FILE}") 2>&1
 
 log() {
-  echo "[build:starry] $*" >&2
+  echo "[build:starry] $*"
 }
 
-write_metadata() {
-  cat >"${ARTIFACT_DIR}/build.info" <<META
-suite=${SUITE}
-arch=${ARCH}
-stamp=$(ts)
-starryos_root=${STARRYOS_ROOT}
-META
+clone_or_update_repo() {
+  if [[ ! -d "${STARRYOS_ROOT}/.git" ]]; then
+    log "Cloning StarryOS from ${STARRYOS_REMOTE}"
+    depth_args=()
+    if [[ "${STARRYOS_DEPTH}" != "0" ]]; then
+      depth_args=(--depth "${STARRYOS_DEPTH}")
+    fi
+    git clone "${depth_args[@]}" --recursive --single-branch --branch "${STARRYOS_REF}" "${STARRYOS_REMOTE}" "${STARRYOS_ROOT}"
+  else
+    log "Updating existing StarryOS repo at ${STARRYOS_ROOT}"
+    git -C "${STARRYOS_ROOT}" fetch origin --tags --prune
+    git -C "${STARRYOS_ROOT}" checkout "${STARRYOS_REF}"
+    git -C "${STARRYOS_ROOT}" pull --ff-only origin "${STARRYOS_REF}"
+    git -C "${STARRYOS_ROOT}" submodule sync --recursive
+    git -C "${STARRYOS_ROOT}" submodule update --init --recursive
+  fi
 }
 
-if [[ "${ENABLE_STARRYOS_BUILD}" != "1" ]]; then
-  log "跳过真实 StarryOS 构建 (设置 ENABLE_STARRYOS_BUILD=1 可启用)"
-  write_metadata
-  exit 0
-fi
+clone_or_update_repo
 
-if [[ ! -d "${STARRYOS_ROOT}" ]]; then
-  log "未找到 StarryOS 目录: ${STARRYOS_ROOT}"
-  exit 1
-fi
+STARRYOS_COMMIT=$(git -C "${STARRYOS_ROOT}" rev-parse HEAD)
+log "StarryOS commit: ${STARRYOS_COMMIT}"
 
 pushd "${STARRYOS_ROOT}" >/dev/null
-log "开始 make ARCH=${ARCH} build"
+log "Building StarryOS (ARCH=${ARCH})"
 make ARCH="${ARCH}" build
-log "生成 rootfs 镜像"
+log "Preparing rootfs image"
 make ARCH="${ARCH}" img
 popd >/dev/null
 
-if compgen -G "${STARRYOS_ROOT}/StarryOS_${ARCH}*-qemu-virt.bin" > /dev/null; then
-  for bin in "${STARRYOS_ROOT}"/StarryOS_"${ARCH}"*-qemu-virt.bin; do
-    cp "${bin}" "${ARTIFACT_DIR}/" || true
-  done
-fi
+log "Copying build artifacts"
+shopt -s nullglob
+for artifact in "${STARRYOS_ROOT}"/StarryOS_"${ARCH}"*-qemu-virt.*; do
+  cp "${artifact}" "${ARTIFACT_DIR}/"
+  log "  -> $(basename "${artifact}")"
+done
+shopt -u nullglob
 
-write_metadata
+cat >"${ARTIFACT_DIR}/build.info" <<META
+suite=${SUITE}
+arch=${ARCH}
+stamp=$(date -u +%Y%m%d-%H%M%S)
+starryos_remote=${STARRYOS_REMOTE}
+starryos_ref=${STARRYOS_REF}
+starryos_root=${STARRYOS_ROOT}
+starryos_commit=${STARRYOS_COMMIT}
+META
+
 log "StarryOS 构建完成，产物位于 ${ARTIFACT_DIR}"

@@ -1,5 +1,6 @@
 /target
 /artifacts
+/.cache
 /logs/*
 !/logs/.gitkeep
 /reports/daily/*
