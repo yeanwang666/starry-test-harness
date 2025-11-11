@@ -22,6 +22,32 @@ CASE_ARTIFACT_DIR="${STARRY_CASE_ARTIFACT_DIR:-${RUN_DIR}/artifacts/${BINARY_NAM
 TARGET_TRIPLE="${TARGET_TRIPLE:-aarch64-unknown-linux-musl}"
 DISK_IMAGE="${STARRYOS_DISK_IMAGE:-${WORKSPACE}/.cache/StarryOS/arceos/disk.img}"
 
+if [[ "${TARGET_TRIPLE}" == "aarch64-unknown-linux-musl" ]]; then
+  REQUIRED_LINKER="aarch64-linux-musl-gcc"
+  LINKER_ENV="${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER:-}"
+  if [[ -n "${LINKER_ENV}" ]]; then
+    LINKER_BIN="${LINKER_ENV%% *}"
+    if ! command -v "${LINKER_BIN}" >/dev/null 2>&1; then
+      echo "[${CASE_LABEL}] CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=${LINKER_ENV} 但未找到可执行文件" >&2
+      exit 1
+    fi
+  elif [[ -n "${CC_aarch64_unknown_linux_musl:-}" ]]; then
+    if ! command -v "${CC_aarch64_unknown_linux_musl}" >/dev/null 2>&1; then
+      echo "[${CASE_LABEL}] CC_aarch64_unknown_linux_musl=${CC_aarch64_unknown_linux_musl} 但未找到可执行文件" >&2
+      exit 1
+    fi
+    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="${CC_aarch64_unknown_linux_musl}"
+  elif command -v "${REQUIRED_LINKER}" >/dev/null 2>&1; then
+    export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="${REQUIRED_LINKER}"
+  else
+    cat >&2 <<MSG
+[${CASE_LABEL}] 未检测到 aarch64 musl 交叉编译器。
+请安装 ${REQUIRED_LINKER} 或设置 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER/CC_aarch64_unknown_linux_musl 后重试。
+MSG
+    exit 1
+  fi
+fi
+
 mkdir -p "${CASE_ARTIFACT_DIR}"
 export CARGO_TARGET_DIR="${TARGET_DIR}"
 
@@ -90,4 +116,3 @@ debugfs -w "${DISK_IMAGE}" -R "mkdir /usr" >/dev/null 2>&1 || true
 debugfs -w "${DISK_IMAGE}" -R "mkdir /usr/tests" >/dev/null 2>&1 || true
 debugfs -w "${DISK_IMAGE}" -R "unlink ${DEST_PATH}" >/dev/null 2>&1 || true
 debugfs -w "${DISK_IMAGE}" -R "write ${TARGET_BIN} ${DEST_PATH}" >/dev/null
-
