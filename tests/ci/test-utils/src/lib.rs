@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Context, Result};
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    process::{Command, ExitStatus, Stdio},
+};
 
 /// 生成一个位于系统临时目录下的唯一文件路径。
 /// 如果 `create` 为 true，则会立即创建空文件。
@@ -77,5 +80,53 @@ pub fn ensure_syscall_success(ret: i64, context: &str) -> Result<i64> {
         Err(anyhow!("{context} -> syscall 返回 {ret}"))
     } else {
         Ok(ret)
+    }
+}
+
+/// 子进程执行结果，包含退出状态以及标准输出/错误（UTF-8）。
+#[derive(Debug)]
+pub struct CommandOutput {
+    pub status: ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl CommandOutput {
+    /// 返回去除首尾空白后的标准输出。
+    pub fn trimmed_stdout(&self) -> &str {
+        self.stdout.trim()
+    }
+}
+
+/// 运行命令并捕获标准输出/错误，默认使用管道。
+pub fn run_command(mut command: Command) -> Result<CommandOutput> {
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    let output = command
+        .output()
+        .with_context(|| "执行子进程失败".to_string())?;
+
+    let stdout = String::from_utf8(output.stdout)
+        .with_context(|| "子进程 stdout 不是有效的 UTF-8".to_string())?;
+    let stderr = String::from_utf8(output.stderr)
+        .with_context(|| "子进程 stderr 不是有效的 UTF-8".to_string())?;
+
+    Ok(CommandOutput {
+        status: output.status,
+        stdout,
+        stderr,
+    })
+}
+
+/// 确保子进程成功退出，否则返回错误并携带 stderr。
+pub fn ensure_success(output: &CommandOutput, context: &str) -> Result<()> {
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "{context} -> exit={:?}, stderr={}",
+            output.status,
+            output.stderr.trim()
+        ))
     }
 }

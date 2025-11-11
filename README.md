@@ -26,7 +26,7 @@ Rust 原型仓库，用于为 Kylin-X / Starry OS 构建分层自动化测试体
 ├── tests/
 │   ├── ci/
 │   │   ├── suite.toml       # CI 用例清单
-│   │   ├── run_starry_boot.sh / run_file_io_basic.sh
+│   │   ├── run_starry_boot.sh / run_rust_case.sh
 │   │   ├── cases/            # Rust bin 用例 (Cargo.toml, src/bin/*.rs)
 │   │   └── test-utils/       # 共享 helper 库 (Cargo.toml, src/lib.rs)
 │   ├── stress/
@@ -73,10 +73,11 @@ make build                # 仅编译 Rust harness
 
 ## 添加/维护用例
 
-1. **新增 Rust 用例**：在 `tests/ci/cases/src/bin/` 下创建 `<name>.rs`，引用 `test-utils` 中的 helper（如文件读写、随机数据），在 `main` 中输出 `PASS/FAIL`。
-2. **准备运行脚本**：复制 `tests/ci/run_file_io_basic.sh`，调整 `BINARY_NAME`、`DEST_PATH` 等变量；若只需主机验证，可设置 `SKIP_DISK_IMAGE=1` 跳过写盘（示例：`SKIP_DISK_IMAGE=1 tests/ci/run_file_io_basic.sh`，或 `export SKIP_DISK_IMAGE=1 && make ci-test run`）。
-3. **登记 manifest**：在 `tests/<suite>/suite.toml` 添加 `[[cases]]`，`path` 指向新的 `tests/<suite>/run_*.sh`；其余字段描述用例用途。
-4. **本地验证**：执行 `make <suite> run` 或直接运行脚本，检查 `logs/<suite>/` 下是否产生日志。
+1. **生成骨架**：执行 `templates/add_ci_case.sh <binary_name> [display_name]` 自动在 `tests/ci/cases/src/bin/` 生成基础模板。
+2. **完善逻辑**：根据提示在生成的 `run()` 中补全测试代码，可复用 `test-utils` 中的工具函数；失败时返回 `Err("原因".into())` 以便日志追踪。
+3. **登记运行条目**：在 `tests/ci/suite.toml` 中新增 `[[cases]]`，大多数 Rust 二进制可直接复用 `tests/ci/run_rust_case.sh`，通过 `args = ["<binary_name>", "<optional_dest>"]` 指定要运行的目标；若只需主机验证，可设置 `SKIP_DISK_IMAGE=1` 跳过写盘（示例：`SKIP_DISK_IMAGE=1 cargo run -- ci-test run`）。
+4. **如需自定义脚本**：特殊流程（如额外预处理/后处理）可以依旧编写独立的 `run_*.sh`，并在 `path` 中指向该脚本。
+5. **本地验证**：执行 `make <suite> run` 或直接运行脚本，检查 `logs/<suite>/` 下是否产生日志。
 
 > 常用环境变量：`STARRYOS_DISK_IMAGE` 指向 rootfs（默认 `.cache/StarryOS/arceos/disk.img`）；`TARGET_TRIPLE` 控制 `cargo build --target`；`STARRYOS_TEST_PATH` 指定写入镜像内的路径；`SKIP_DISK_IMAGE=1` 仅运行主机版测试。
 

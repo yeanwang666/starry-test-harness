@@ -13,5 +13,11 @@ args = []
 [[cases]]
 name = "file-io-basic"
 description = "Rust 文件基础读写冒烟"
-path = "tests/ci/run_file_io_basic.sh"
-args = []
+path = "tests/ci/run_rust_case.sh"
+args = ["file_io_basic"]
+
+[[cases]]
+name = "process-spawn"
+description = "通过子进程输出验证进程管理基本能力"
+path = "tests/ci/run_rust_case.sh"
+args = ["process_spawn"]
