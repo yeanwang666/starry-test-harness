@@ -23,7 +23,7 @@ jobs:
       - name: Setup Rust nightly
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2024-08-01
+          toolchain: nightly-2024-10-15
           components: rustfmt
 
       - uses: Swatinem/rust-cache@v2
