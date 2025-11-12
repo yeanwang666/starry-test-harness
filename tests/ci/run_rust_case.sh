@@ -20,8 +20,8 @@ RUN_DIR="${STARRY_RUN_DIR:-${WORKSPACE}/logs/ci/${RUN_ID}}"
 CASE_ARTIFACT_DIR="${STARRY_CASE_ARTIFACT_DIR:-${RUN_DIR}/artifacts/${BINARY_NAME}}"
 
 TARGET_TRIPLE="${TARGET_TRIPLE:-aarch64-unknown-linux-musl}"
-DISK_IMAGE="${STARRYOS_DISK_IMAGE:-${WORKSPACE}/.cache/StarryOS/arceos/disk.img}"
 
+# Remote change: Check for cross-compiler before proceeding
 if [[ "${TARGET_TRIPLE}" == "aarch64-unknown-linux-musl" ]]; then
   REQUIRED_LINKER="aarch64-linux-musl-gcc"
   LINKER_ENV="${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER:-}"
@@ -79,13 +79,48 @@ if [[ "${SKIP_DISK_IMAGE:-0}" == "1" ]]; then
   exit 0
 fi
 
-if [[ ! -f "${DISK_IMAGE}" ]]; then
-  echo "[${CASE_LABEL}] 未找到磁盘镜像：${DISK_IMAGE}" >&2
+# Your change: Create fresh disk image from template
+STARRYOS_ROOT="${STARRYOS_ROOT:-${SCRIPT_DIR}/../../.cache/StarryOS}"
+ARCH="${ARCH:-aarch64}"
+ROOTFS_TEMPLATE="${STARRYOS_ROOT}/rootfs-${ARCH}.img"
+CLEANUP_DISK=0
+
+if [[ ! -f "${ROOTFS_TEMPLATE}" ]]; then
+  echo "[${CASE_LABEL}] rootfs template not found: ${ROOTFS_TEMPLATE}" >&2
+  echo "[${CASE_LABEL}] run the build script first to download it" >&2
   exit 1
 fi
 
-if [[ ! -w "${DISK_IMAGE}" ]]; then
-  echo "[${CASE_LABEL}] 当前用户无权写入磁盘镜像 ${DISK_IMAGE}" >&2
+if [[ -n "${STARRYOS_DISK_IMAGE:-}" ]]; then
+  DISK_IMAGE="${STARRYOS_DISK_IMAGE}"
+  if [[ "${DISK_IMAGE}" != /* ]]; then
+    DISK_IMAGE="${WORKSPACE}/${STARRYOS_DISK_IMAGE}"
+  fi
+  mkdir -p "$(dirname "${DISK_IMAGE}")"
+else
+  DISK_IMAGE="$(mktemp /tmp/starry-disk-XXXXXX.img)"
+  CLEANUP_DISK=1
+  trap 'if (( CLEANUP_DISK )); then rm -f "${DISK_IMAGE}"; fi' EXIT
+fi
+export DISK_IMG="${DISK_IMAGE}"
+
+echo "[${CASE_LABEL}] creating fresh disk image from template" >&2
+mkdir -p "$(dirname "${DISK_IMAGE}")"
+if ! cp "${ROOTFS_TEMPLATE}" "${DISK_IMAGE}"; then
+  if ! sudo cp "${ROOTFS_TEMPLATE}" "${DISK_IMAGE}"; then
+    echo "[${CASE_LABEL}] failed to copy rootfs template into ${DISK_IMAGE}" >&2
+    exit 1
+  fi
+fi
+if ! chmod 666 "${DISK_IMAGE}"; then
+  if ! sudo chmod 666 "${DISK_IMAGE}"; then
+    echo "[${CASE_LABEL}] failed to adjust permissions on ${DISK_IMAGE}" >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -f "${DISK_IMAGE}" ]]; then
+  echo "[${CASE_LABEL}] failed to create disk image: ${DISK_IMAGE}" >&2
   exit 1
 fi
 
@@ -112,7 +147,26 @@ if [[ ! -f "${TARGET_BIN}" ]]; then
 fi
 
 echo "[${CASE_LABEL}] 写入磁盘镜像 -> ${DEST_PATH}" >&2
-debugfs -w "${DISK_IMAGE}" -R "mkdir /usr" >/dev/null 2>&1 || true
-debugfs -w "${DISK_IMAGE}" -R "mkdir /usr/tests" >/dev/null 2>&1 || true
-debugfs -w "${DISK_IMAGE}" -R "unlink ${DEST_PATH}" >/dev/null 2>&1 || true
-debugfs -w "${DISK_IMAGE}" -R "write ${TARGET_BIN} ${DEST_PATH}" >/dev/null
+
+# Your change: Use sudo for debugfs if needed and use cd + write
+DEBUGFS_CMD="debugfs"
+if [[ ! -w "${DISK_IMAGE}" ]]; then
+  echo "[${CASE_LABEL}] disk image not writable, using sudo for debugfs" >&2
+  DEBUGFS_CMD="sudo debugfs"
+fi
+
+${DEBUGFS_CMD} -w "${DISK_IMAGE}" -R "mkdir /usr" >/dev/null 2>&1 || true
+${DEBUGFS_CMD} -w "${DISK_IMAGE}" -R "mkdir /usr/tests" >/dev/null 2>&1 || true
+
+# debugfs write command requires cd to target directory first
+DEST_FILENAME=$(basename "${DEST_PATH}")
+if ! ${DEBUGFS_CMD} -w "${DISK_IMAGE}" << EOF
+cd /usr/tests
+rm ${DEST_FILENAME}
+write ${TARGET_BIN} ${DEST_FILENAME}
+quit
+EOF
+then
+  echo "[${CASE_LABEL}] failed to write binary to disk image" >&2
+  exit 1
+fi

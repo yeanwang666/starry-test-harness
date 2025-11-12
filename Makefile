@@ -10,12 +10,12 @@ endif
 
 .DEFAULT_GOAL := help
 
-.PHONY: $(SUPPORTED_SUITES) run publish help build
+.PHONY: $(SUPPORTED_SUITES) run help build
 
 $(SUPPORTED_SUITES):
 	@$(RUNNER) $(SUITE) $(ACTION)
 
-run publish:
+run:
 	@# helper targets so `make ci-test run` works as expected
 
 build:
@@ -26,5 +26,4 @@ help:
 	@echo "  make ci-test run        # build + run CI smoke tests"
 	@echo "  make stress-test run    # build + run stress tests"
 	@echo "  make daily-test run     # run long stability tests"
-	@echo "  make daily-test publish # publish latest daily summary"
 	@echo "  make build              # compile the Rust harness"

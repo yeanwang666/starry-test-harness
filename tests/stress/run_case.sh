@@ -8,6 +8,7 @@ fi
 
 CASE_ID="$1"
 shift || true
+CASE_ARGS=("$@")
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="${STARRY_WORKSPACE_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
@@ -34,30 +35,172 @@ PACKAGE_NAME="$(
 
 TARGET_DIR="${WORKSPACE_ROOT}/target/stress-cases"
 ARTIFACT_DIR="${STARRY_CASE_ARTIFACT_DIR:-${CASE_DIR}/artifacts}"
-
 mkdir -p "${TARGET_DIR}" "${ARTIFACT_DIR}"
 
-echo "[stress] building ${PACKAGE_NAME}" >&2
-CARGO_TARGET_DIR="${TARGET_DIR}" \
-  cargo build --manifest-path "${MANIFEST_PATH}" --release
+TARGET_TRIPLE="${TARGET_TRIPLE:-aarch64-unknown-linux-musl}"
+if ! rustup target list --installed | grep -q "^${TARGET_TRIPLE}$"; then
+  echo "[stress] installing Rust target ${TARGET_TRIPLE}" >&2
+  rustup target add "${TARGET_TRIPLE}"
+fi
 
-BIN_PATH="${TARGET_DIR}/release/${PACKAGE_NAME}"
-if [[ ! -x "${BIN_PATH}" ]]; then
-  echo "[stress] expected binary not found: ${BIN_PATH}" >&2
+echo "[stress] building ${PACKAGE_NAME} for ${TARGET_TRIPLE}" >&2
+CARGO_TARGET_DIR="${TARGET_DIR}" \
+  cargo build --manifest-path "${MANIFEST_PATH}" --release --target "${TARGET_TRIPLE}"
+
+TARGET_BIN="${TARGET_DIR}/${TARGET_TRIPLE}/release/${PACKAGE_NAME}"
+if [[ ! -f "${TARGET_BIN}" ]]; then
+  echo "[stress] expected target binary not found: ${TARGET_BIN}" >&2
   exit 1
+fi
+
+STARRYOS_ROOT="${STARRYOS_ROOT:-${WORKSPACE_ROOT}/.cache/StarryOS}"
+if [[ "${STARRYOS_ROOT}" != /* ]]; then
+  STARRYOS_ROOT="${WORKSPACE_ROOT}/${STARRYOS_ROOT}"
+fi
+
+# Create fresh disk image from template for each test run
+ARCH="${ARCH:-aarch64}"
+ROOTFS_TEMPLATE="${STARRYOS_ROOT}/rootfs-${ARCH}.img"
+CLEANUP_DISK=0
+
+if [[ ! -f "${ROOTFS_TEMPLATE}" ]]; then
+  echo "[stress] rootfs template not found: ${ROOTFS_TEMPLATE}" >&2
+  echo "[stress] run the build script first to download it" >&2
+  exit 1
+fi
+
+if [[ -n "${STARRYOS_DISK_IMAGE:-}" ]]; then
+  DISK_IMAGE="${STARRYOS_DISK_IMAGE}"
+  if [[ "${DISK_IMAGE}" != /* ]]; then
+    DISK_IMAGE="${WORKSPACE_ROOT}/${DISK_IMAGE}"
+  fi
+  mkdir -p "$(dirname "${DISK_IMAGE}")"
+else
+  DISK_IMAGE="$(mktemp /tmp/starry-disk-XXXXXX.img)"
+  CLEANUP_DISK=1
+  trap 'if (( CLEANUP_DISK )); then rm -f "${DISK_IMAGE}"; fi' EXIT
+fi
+export DISK_IMG="${DISK_IMAGE}"
+
+echo "[stress] creating fresh disk image from template" >&2
+mkdir -p "$(dirname "${DISK_IMAGE}")"
+if ! cp "${ROOTFS_TEMPLATE}" "${DISK_IMAGE}"; then
+  if ! sudo cp "${ROOTFS_TEMPLATE}" "${DISK_IMAGE}"; then
+    echo "[stress] failed to copy rootfs template into ${DISK_IMAGE}" >&2
+    exit 1
+  fi
+fi
+if ! chmod 666 "${DISK_IMAGE}"; then
+  if ! sudo chmod 666 "${DISK_IMAGE}"; then
+    echo "[stress] failed to adjust permissions on ${DISK_IMAGE}" >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -f "${DISK_IMAGE}" ]]; then
+  echo "[stress] failed to create disk image: ${DISK_IMAGE}" >&2
+  exit 1
+fi
+if ! command -v debugfs >/dev/null 2>&1; then
+  echo "[stress] debugfs is required to inject binaries" >&2
+  exit 1
+fi
+
+REMOTE_ROOT="${STARRYOS_TEST_PATH:-/usr/tests}"
+if [[ "${REMOTE_ROOT}" != /* ]]; then
+  REMOTE_ROOT="/${REMOTE_ROOT}"
+fi
+REMOTE_ROOT="${REMOTE_ROOT%/}"
+REMOTE_PATH="${REMOTE_ROOT}/${CASE_ID}"
+
+DEBUGFS_CMD="debugfs"
+if [[ ! -w "${DISK_IMAGE}" ]]; then
+  echo "[stress] disk image not writable, using sudo for debugfs" >&2
+  DEBUGFS_CMD="sudo debugfs"
+fi
+
+IFS='/' read -ra __segments <<< "${REMOTE_ROOT}"
+__current=""
+for __segment in "${__segments[@]}"; do
+  [[ -z "${__segment}" ]] && continue
+  __current+="/${__segment}"
+  ${DEBUGFS_CMD} -w "${DISK_IMAGE}" -R "mkdir ${__current}" >/dev/null 2>&1 || true
+done
+
+# debugfs write command requires cd to target directory first
+REMOTE_FILENAME=$(basename "${REMOTE_PATH}")
+if ! ${DEBUGFS_CMD} -w "${DISK_IMAGE}" << EOF
+cd ${REMOTE_ROOT}
+rm ${REMOTE_FILENAME}
+write ${TARGET_BIN} ${REMOTE_FILENAME}
+quit
+EOF
+then
+  echo "[stress] failed to write binary to disk image" >&2
+  exit 1
+fi
+echo "[stress] deployed binary to ${REMOTE_PATH}" >&2
+
+VM_RUNNER="${STARRY_VM_RUNNER:-${CI_TEST_RUNNER:-${WORKSPACE_ROOT}/scripts/starry_vm_runner.py}}"
+if [[ ! -x "${VM_RUNNER}" ]]; then
+  echo "[stress] starry_vm_runner not found at ${VM_RUNNER}" >&2
+  exit 1
+fi
+
+REMOTE_CMD="${REMOTE_PATH}"
+if (( ${#CASE_ARGS[@]} > 0 )); then
+  for arg in "${CASE_ARGS[@]}"; do
+    REMOTE_CMD+=" $(printf '%q' "${arg}")"
+  done
 fi
 
 RUN_STDOUT="${ARTIFACT_DIR}/stdout.json"
+RAW_STDOUT="${ARTIFACT_DIR}/stdout_raw.log"
 RUN_STDERR="${ARTIFACT_DIR}/stderr.log"
 RESULT_PATH="${ARTIFACT_DIR}/result.json"
+COMMAND_TIMEOUT="${STARRY_CASE_TIMEOUT_SECS:-600}"
 
-echo "[stress] running ${PACKAGE_NAME}" >&2
-if ! OUTPUT="$("${BIN_PATH}" "$@" 2> >(tee "${RUN_STDERR}" >&2))"; then
-  echo "[stress] binary execution failed" >&2
+echo "[stress] running inside StarryOS: ${REMOTE_CMD}" >&2
+if ! VM_OUTPUT="$(
+  python3 "${VM_RUNNER}" \
+    --root "${STARRYOS_ROOT}" \
+    --arch "${ARCH}" \
+    --command "${REMOTE_CMD}" \
+    --command-timeout "${COMMAND_TIMEOUT}" \
+    2> >(tee "${RUN_STDERR}" >&2)
+)"; then
+  echo "[stress] StarryOS command failed" >&2
   exit 1
 fi
 
-printf "%s\n" "${OUTPUT}" | tee "${RUN_STDOUT}" >/dev/null
+VM_OUTPUT="${VM_OUTPUT//$'\r'/}"
+printf "%s\n" "${VM_OUTPUT}" | tee "${RAW_STDOUT}" >/dev/null
+
+if ! PAYLOAD="$(python3 - "${RAW_STDOUT}" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text()
+candidates = re.findall(r"\{.*?\}", text, flags=re.S)
+for candidate in reversed(candidates):
+    try:
+        json.loads(candidate)
+    except json.JSONDecodeError:
+        continue
+    print(candidate.strip())
+    break
+else:
+    print("[stress] JSON payload not found in VM output", file=sys.stderr)
+    sys.exit(1)
+PY
+)"; then
+  echo "[stress] failed to extract JSON payload from VM output" >&2
+  exit 1
+fi
+
+printf "%s\n" "${PAYLOAD}" | tee "${RUN_STDOUT}" >/dev/null
 
 if [[ ! -s "${RUN_STDOUT}" ]]; then
   echo "[stress] run log empty - expected structured output" >&2
@@ -72,8 +215,13 @@ from pathlib import Path
 log_path = Path(sys.argv[1])
 result_path = Path(sys.argv[2])
 
+payload = log_path.read_text().strip()
+if not payload:
+    print("[stress] empty payload received from guest", file=sys.stderr)
+    sys.exit(1)
+
 try:
-    data = json.loads(log_path.read_text())
+    data = json.loads(payload)
 except json.JSONDecodeError as exc:
     print(f"[stress] invalid JSON output: {exc}", file=sys.stderr)
     sys.exit(1)
@@ -89,4 +237,3 @@ print(f"[stress] stored result -> {result_path}")
 if status != "pass":
     sys.exit(2)
 PY
-

@@ -1,6 +1,6 @@
 name = "stress-test"
 description = "内存/调度压力，适用于 nightly"
-build_script = "scripts/build_stub.sh"
+build_script = "scripts/build_starry.sh"
 arch = "aarch64"
 default_timeout_secs = 900
 

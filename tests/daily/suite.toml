@@ -1,6 +1,6 @@
 name = "daily-test"
 description = "长稳测试: 并发、资源抢占"
-build_script = "scripts/build_stub.sh"
+build_script = "scripts/build_starry.sh"
 arch = "aarch64"
 default_timeout_secs = 1800
 

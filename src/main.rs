@@ -18,7 +18,6 @@ fn main() -> Result<()> {
 
     match cli.action {
         Action::Run => run_suite(cli.suite, &workspace),
-        Action::Publish => publish_suite(cli.suite, &workspace),
     }
 }
 
@@ -68,7 +67,6 @@ impl Suite {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum Action {
     Run,
-    Publish,
 }
 
 #[derive(Debug, Deserialize)]
@@ -302,31 +300,6 @@ fn run_suite(suite: Suite, workspace: &Path) -> Result<()> {
     Ok(())
 }
 
-fn publish_suite(suite: Suite, workspace: &Path) -> Result<()> {
-    if !matches!(suite, Suite::DailyTest) {
-        bail!("publish is currently only supported for daily-test");
-    }
-    let logs_root = workspace.join("logs").join(suite.dir_name());
-    let summary_path = logs_root.join("last_run.json");
-    if !summary_path.exists() {
-        bail!(
-            "no previous run summary found at {}",
-            summary_path.display()
-        );
-    }
-    let reports_dir = workspace.join("reports").join(suite.dir_name());
-    fs::create_dir_all(&reports_dir)?;
-    let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let dest = reports_dir.join(format!("summary-{}.json", timestamp));
-    fs::copy(&summary_path, &dest)?;
-    println!(
-        "Published {} report to {}",
-        suite.display_name(),
-        dest.display()
-    );
-    Ok(())
-}
-
 fn run_case(
     case: &TestCase,
     workspace: &Path,
@@ -372,6 +345,7 @@ fn run_case(
     command.env("STARRY_CASE_LOG_PATH", log_path);
     command.env("STARRY_CASE_LOG_DIR", case_log_dir);
     command.env("STARRY_CASE_ARTIFACT_DIR", case_artifact_dir);
+    command.env("STARRY_CASE_TIMEOUT_SECS", timeout_secs.to_string());
 
     let start = Instant::now();
     let output = command

@@ -1,6 +1,6 @@
 name = "ci-test"
 description = "Rust 用例聚合执行"
-build_script = "scripts/ci_build_starry.sh"
+build_script = "scripts/build_starry.sh"
 arch = "aarch64"
 default_timeout_secs = 300
 

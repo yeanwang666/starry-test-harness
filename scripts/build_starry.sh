@@ -48,11 +48,48 @@ clone_or_update_repo
 STARRYOS_COMMIT=$(git -C "${STARRYOS_ROOT}" rev-parse HEAD)
 log "StarryOS commit: ${STARRYOS_COMMIT}"
 
+DEFAULT_TOOLCHAIN="nightly-2025-05-05-aarch64-unknown-linux-gnu"
+if ! command -v rustup >/dev/null 2>&1; then
+  log "rustup not found, please install Rust toolchains before running build"
+  exit 1
+fi
+if ! rustup toolchain list | grep -q "${DEFAULT_TOOLCHAIN}"; then
+  log "Installing Rust toolchain ${DEFAULT_TOOLCHAIN}"
+  rustup toolchain install "${DEFAULT_TOOLCHAIN}"
+fi
+if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]]; then
+  export RUSTUP_TOOLCHAIN="${DEFAULT_TOOLCHAIN}"
+  log "Using Rust toolchain ${RUSTUP_TOOLCHAIN}"
+elif [[ "${RUSTUP_TOOLCHAIN}" != nightly* ]]; then
+  log "Toolchain ${RUSTUP_TOOLCHAIN} is not nightly; switching to ${DEFAULT_TOOLCHAIN}"
+  export RUSTUP_TOOLCHAIN="${DEFAULT_TOOLCHAIN}"
+else
+  log "Using pre-set Rust toolchain ${RUSTUP_TOOLCHAIN}"
+fi
+
+if ! rustup target list --toolchain "${RUSTUP_TOOLCHAIN}" --installed | grep -q "aarch64-unknown-none-softfloat"; then
+  log "Installing target aarch64-unknown-none-softfloat for ${RUSTUP_TOOLCHAIN}"
+  rustup target add --toolchain "${RUSTUP_TOOLCHAIN}" aarch64-unknown-none-softfloat
+fi
+if ! rustup component list --toolchain "${RUSTUP_TOOLCHAIN}" --installed | grep -q "llvm-tools-preview"; then
+  log "Installing llvm-tools-preview for ${RUSTUP_TOOLCHAIN}"
+  rustup component add --toolchain "${RUSTUP_TOOLCHAIN}" llvm-tools-preview
+fi
+
 pushd "${STARRYOS_ROOT}" >/dev/null
 log "Building StarryOS (ARCH=${ARCH})"
 make ARCH="${ARCH}" build
-log "Preparing rootfs image"
-make ARCH="${ARCH}" img
+
+# Download rootfs template if not exists (but don't copy to arceos/disk.img yet)
+log "Ensuring rootfs template is available"
+IMG_URL="https://github.com/Starry-OS/rootfs/releases/download/20250917"
+IMG="rootfs-${ARCH}.img"
+if [[ ! -f "${IMG}" ]]; then
+  log "Downloading rootfs template for ${ARCH}"
+  curl -f -L "${IMG_URL}/${IMG}.xz" -O
+  xz -d "${IMG}.xz"
+fi
+log "Rootfs template ready: ${IMG}"
 popd >/dev/null
 
 log "Copying build artifacts"
