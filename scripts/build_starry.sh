@@ -48,53 +48,18 @@ clone_or_update_repo
 STARRYOS_COMMIT=$(git -C "${STARRYOS_ROOT}" rev-parse HEAD)
 log "StarryOS commit: ${STARRYOS_COMMIT}"
 
-# Patch: Remove doc_auto_cfg feature (removed in Rust 1.92.0)
-log "Patching StarryOS to remove doc_auto_cfg feature"
-find "${STARRYOS_ROOT}" -name "*.rs" -type f -exec grep -l "feature(doc_auto_cfg)" {} \; | while read -r file; do
-  log "  Patching $(realpath --relative-to="${STARRYOS_ROOT}" "$file")"
-  sed -i '/^#!\[feature(doc_auto_cfg)\]/d' "$file"
-done
-
-HOST_TRIPLE="$(rustc -Vv 2>/dev/null | awk '/^host:/ {print $2}')"
-if [[ -z "${HOST_TRIPLE}" ]]; then
-  HOST_TRIPLE="x86_64-unknown-linux-gnu"
-fi
-if [[ -n "${STARRYOS_TOOLCHAIN:-}" ]]; then
-  DEFAULT_TOOLCHAIN="${STARRYOS_TOOLCHAIN}"
-else
-  # Use the date-pinned nightly for aarch64, latest for x86_64
-  if [[ "${HOST_TRIPLE}" == "aarch64-unknown-linux-gnu" ]]; then
-    DEFAULT_TOOLCHAIN="nightly-2025-05-05-${HOST_TRIPLE}"
-  else
-    # For x86_64 CI, use the active nightly (set by workflow)
-    DEFAULT_TOOLCHAIN="nightly"
-  fi
-fi
 if ! command -v rustup >/dev/null 2>&1; then
   log "rustup not found, please install Rust toolchains before running build"
   exit 1
 fi
-if ! rustup toolchain list | grep -q "${DEFAULT_TOOLCHAIN}"; then
-  log "Installing Rust toolchain ${DEFAULT_TOOLCHAIN}"
-  rustup toolchain install "${DEFAULT_TOOLCHAIN}"
+if [[ -n "${STARRYOS_TOOLCHAIN:-}" ]]; then
+  export RUSTUP_TOOLCHAIN="${STARRYOS_TOOLCHAIN}"
+  log "Using override toolchain ${RUSTUP_TOOLCHAIN}"
 fi
-if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]]; then
-  export RUSTUP_TOOLCHAIN="${DEFAULT_TOOLCHAIN}"
-  log "Using Rust toolchain ${RUSTUP_TOOLCHAIN}"
-elif [[ "${RUSTUP_TOOLCHAIN}" != nightly* ]]; then
-  log "Toolchain ${RUSTUP_TOOLCHAIN} is not nightly; switching to ${DEFAULT_TOOLCHAIN}"
-  export RUSTUP_TOOLCHAIN="${DEFAULT_TOOLCHAIN}"
-else
-  log "Using pre-set Rust toolchain ${RUSTUP_TOOLCHAIN}"
-fi
-
-if ! rustup target list --toolchain "${RUSTUP_TOOLCHAIN}" --installed | grep -q "aarch64-unknown-none-softfloat"; then
-  log "Installing target aarch64-unknown-none-softfloat for ${RUSTUP_TOOLCHAIN}"
-  rustup target add --toolchain "${RUSTUP_TOOLCHAIN}" aarch64-unknown-none-softfloat
-fi
-if ! rustup component list --toolchain "${RUSTUP_TOOLCHAIN}" --installed | grep -q "llvm-tools-preview"; then
-  log "Installing llvm-tools-preview for ${RUSTUP_TOOLCHAIN}"
-  rustup component add --toolchain "${RUSTUP_TOOLCHAIN}" llvm-tools-preview
+log "Rust toolchain will follow ${STARRYOS_ROOT}/rust-toolchain.toml (auto-managed by rustup)"
+ACTIVE_TOOLCHAIN="$(rustup show active-toolchain 2>/dev/null | tr -d '\r')"
+if [[ -n "${ACTIVE_TOOLCHAIN}" ]]; then
+  log "Active toolchain: ${ACTIVE_TOOLCHAIN}"
 fi
 
 pushd "${STARRYOS_ROOT}" >/dev/null
