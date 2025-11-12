@@ -52,7 +52,16 @@ HOST_TRIPLE="$(rustc -Vv 2>/dev/null | awk '/^host:/ {print $2}')"
 if [[ -z "${HOST_TRIPLE}" ]]; then
   HOST_TRIPLE="x86_64-unknown-linux-gnu"
 fi
-DEFAULT_TOOLCHAIN="${STARRYOS_TOOLCHAIN:-nightly-2025-05-05-${HOST_TRIPLE}}"
+if [[ -n "${STARRYOS_TOOLCHAIN:-}" ]]; then
+  DEFAULT_TOOLCHAIN="${STARRYOS_TOOLCHAIN}"
+else
+  TOOLCHAIN_DATE_DEFAULT="2025-05-05"
+  if [[ "${HOST_TRIPLE}" == "x86_64-unknown-linux-gnu" ]]; then
+    TOOLCHAIN_DATE_DEFAULT="2024-01-31"
+  fi
+  TOOLCHAIN_DATE="${STARRYOS_TOOLCHAIN_DATE:-${TOOLCHAIN_DATE_DEFAULT}}"
+  DEFAULT_TOOLCHAIN="nightly-${TOOLCHAIN_DATE}-${HOST_TRIPLE}"
+fi
 if ! command -v rustup >/dev/null 2>&1; then
   log "rustup not found, please install Rust toolchains before running build"
   exit 1
