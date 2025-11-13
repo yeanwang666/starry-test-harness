@@ -8,7 +8,7 @@ SUITE=${1:-ci-test}
 ARCH=${ARCH:-aarch64}
 
 STARRYOS_REMOTE="${STARRYOS_REMOTE:-https://github.com/kylin-x-kernel/StarryOS.git}"
-STARRYOS_COMMIT="${STARRYOS_COMMIT:-main}"
+STARRYOS_COMMIT="${STARRYOS_REF:-${STARRYOS_COMMIT:-main}}"
 STARRYOS_ROOT=${STARRYOS_ROOT:-${REPO_ROOT}/.cache/StarryOS}
 STARRYOS_DEPTH=${STARRYOS_DEPTH:-0}
 ARTIFACT_DIR="${REPO_ROOT}/artifacts/${SUITE}"
@@ -76,6 +76,13 @@ if [[ ! -f "${IMG_PATH}" ]]; then
   xz -d "${IMG_PATH}.xz"
 fi
 log "Rootfs template ready: ${IMG_PATH}"
+
+# Copy rootfs template to StarryOS root for test scripts
+STARRYOS_IMG="${STARRYOS_ROOT}/${IMG}"
+if [[ ! -f "${STARRYOS_IMG}" ]] || [[ "${IMG_PATH}" -nt "${STARRYOS_IMG}" ]]; then
+  log "Copying rootfs template to ${STARRYOS_IMG}"
+  cp "${IMG_PATH}" "${STARRYOS_IMG}"
+fi
 popd >/dev/null
 
 log "Copying build artifacts"
