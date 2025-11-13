@@ -12,21 +12,12 @@ if [[ "${STARRYOS_ROOT}" != /* ]]; then
   STARRYOS_ROOT="${REPO_ROOT}/${STARRYOS_ROOT}"
 fi
 
-ROOTFS_TEMPLATE="${STARRYOS_ROOT}/rootfs-${ARCH}.img"
 ROOTFS_CACHE_DIR="${ROOTFS_CACHE_DIR:-${REPO_ROOT}/.cache/rootfs}"
-ALT_ROOTFS="${ROOTFS_CACHE_DIR}/rootfs-${ARCH}.img"
+ROOTFS_TEMPLATE="${ROOTFS_CACHE_DIR}/rootfs-${ARCH}.img"
 CLEANUP_DISK=0
 
-if [[ ! -f "${ROOTFS_TEMPLATE}" && -f "${ALT_ROOTFS}" ]]; then
-  echo "[starry-boot] primary rootfs missing, fallback to cache: ${ALT_ROOTFS}"
-  ROOTFS_TEMPLATE="${ALT_ROOTFS}"
-fi
-
 if [[ ! -f "${ROOTFS_TEMPLATE}" ]]; then
-  cat <<EOF >&2
-[starry-boot] rootfs template not found: ${ROOTFS_TEMPLATE}
-[starry-boot] 请先执行 scripts/build_starry.sh 生成该镜像
-EOF
+  echo "[starry-boot] rootfs template missing: ${ROOTFS_TEMPLATE}" >&2
   exit 1
 fi
 
