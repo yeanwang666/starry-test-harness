@@ -98,7 +98,7 @@ suite=${SUITE}
 arch=${ARCH}
 stamp=$(date -u +%Y%m%d-%H%M%S)
 starryos_remote=${STARRYOS_REMOTE}
-starryos_ref=${STARRYOS_REF}
+starryos_ref=${STARRYOS_REF:-}
 starryos_root=${STARRYOS_ROOT}
 starryos_commit=${STARRYOS_COMMIT}
 META
