@@ -21,3 +21,15 @@ name = "process-spawn"
 description = "通过子进程输出验证进程管理基本能力"
 path = "tests/ci/run_case.sh"
 args = ["process_spawn"]
+
+[[cases]]
+name = "waitpid-posix"
+description = "测试 waitpid 系统调用的正确性与 POSIX 兼容性"
+path = "tests/ci/run_case.sh"
+args = ["waitpid_posix"]
+
+[[cases]]
+name = "waitpid-linux-abi"
+description = "测试 waitpid 系统调用的正确性与 Linux ABI 兼容性"
+path = "tests/ci/run_case.sh"
+args = ["waitpid_linux_abi"]
