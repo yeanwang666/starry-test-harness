@@ -13,58 +13,8 @@ use libc::{
     exit, fork, kill, raise, waitpid, ECHILD, SIGCONT, SIGSTOP, SIGTERM, SIGTSTP, WCONTINUED,
     WNOHANG, WUNTRACED,
 };
-use std::{os::unix::thread, ptr, time::Duration, thread::sleep};
-
-// Status interpretation macros (Linux-specific)
-
-macro_rules! wifexited {
-    ($status:expr) => {
-        ($status & 0x7f) == 0
-    };
-}
-
-macro_rules! wexitstatus {
-    ($status:expr) => {
-        ($status >> 8) & 0xff
-    };
-}
-
-macro_rules! wifsignaled {
-    ($status:expr) => {
-        ((($status & 0x7f) + 1) as i8 >> 1) > 0
-    };
-}
-
-macro_rules! wtermsig {
-    ($status:expr) => {
-        $status & 0x7f
-    };
-}
-
-macro_rules! wifstopped {
-    ($status:expr) => {
-        ($status & 0xff) == 0x7f
-    };
-}
-
-macro_rules! wstopsig {
-    ($status:expr) => {
-        ($status >> 8) & 0xff
-    };
-}
-
-macro_rules! wifcontinued {
-    ($status:expr) => {
-        $status == 0xffff
-    };
-}
-
-#[allow(dead_code)]
-macro_rules! wcoredump {
-    ($status:expr) => {
-        ($status & 0x80) != 0
-    };
-}
+use std::{ptr, time::Duration, thread::sleep};
+use test_utils::*; // Import status macros
 
 #[test]
 fn waitpid_wuntraced_sigstop() {

@@ -33,3 +33,9 @@ name = "waitpid-linux-abi"
 description = "测试 waitpid 系统调用的正确性与 Linux ABI 兼容性"
 path = "tests/ci/run_case.sh"
 args = ["waitpid_linux_abi"]
+
+[[cases]]
+name = "sigstop-sigcont"
+description = "测试 SIGSTOP 和 SIGCONT 信号的进程状态管理"
+path = "tests/ci/run_case.sh"
+args = ["sigstop_sigcont"]

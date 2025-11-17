@@ -14,34 +14,7 @@ use libc::{
     exit, fork, getpid, getpgid, kill, setpgid, waitpid, ECHILD, EINVAL, SIGKILL, SIGTERM, WNOHANG,
 };
 use std::ptr;
-
-// Helper macro to check if child exited normally
-macro_rules! wifexited {
-    ($status:expr) => {
-        ($status & 0x7f) == 0
-    };
-}
-
-// Helper macro to get exit status
-macro_rules! wexitstatus {
-    ($status:expr) => {
-        ($status >> 8) & 0xff
-    };
-}
-
-// Helper macro to check if child was terminated by signal
-macro_rules! wifsignaled {
-    ($status:expr) => {
-        ((($status & 0x7f) + 1) as i8 >> 1) > 0
-    };
-}
-
-// Helper macro to get terminating signal
-macro_rules! wtermsig {
-    ($status:expr) => {
-        $status & 0x7f
-    };
-}
+use test_utils::*;
 
 #[test]
 fn waitpid_basic_child_exit() {
