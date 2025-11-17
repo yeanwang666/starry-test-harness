@@ -1,18 +1,19 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env,
     fs::{self, File},
-    io::{Write, IsTerminal},
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
     process::Command,
     time::Instant,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Local};
 use clap::{Parser, ValueEnum};
-use serde::{Deserialize, Serialize};
 use colored::Colorize;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -131,6 +132,13 @@ struct CaseOutcome {
     duration_ms: u128,
     exit_code: Option<i32>,
     log_path: PathBuf,
+    failed_details: Option<Vec<FailedSubCaseDetail>>,
+}
+
+#[derive(Debug, Clone)]
+struct FailedSubCaseDetail {
+    name: String,
+    summary: String,
 }
 
 #[derive(Debug)]
@@ -267,6 +275,11 @@ fn run_suite(suite: Suite, workspace: &Path) -> Result<()> {
 
         // Check if stdout is a TTY (interactive terminal)
         let is_tty = std::io::stdout().is_terminal();
+        let failed_lines = outcome
+            .failed_details
+            .as_ref()
+            .map(|details| format_failed_subtest_lines(details))
+            .unwrap_or_default();
 
         if is_tty {
             // Move cursor up to the start of the test case box and redraw with result color
@@ -282,10 +295,34 @@ fn run_suite(suite: Suite, workspace: &Path) -> Result<()> {
                 println!("{} {}", box_color("│ ".into()), desc.bright_white());
             }
             println!("{} {}: {}", box_color("│ ".into()), "Log".bright_cyan(), rel_path(&case_log_path, workspace).display().to_string().dimmed());
-            println!("{} {} {}", box_color("└─".into()), status_colored, format!("(completed in {:.2}s)", duration_sec).dimmed());
+            if failed_lines.is_empty() {
+                println!(
+                    "{} {} {}",
+                    box_color("└─".into()),
+                    status_colored,
+                    format!("(completed in {:.2}s)", duration_sec).dimmed()
+                );
+            } else {
+                println!(
+                    "{} {} {}",
+                    box_color("│ ".into()),
+                    status_colored,
+                    format!("(completed in {:.2}s)", duration_sec).dimmed()
+                );
+                for (idx, line) in failed_lines.iter().enumerate() {
+                    if idx + 1 == failed_lines.len() {
+                        println!("{} {}", box_color("└─".into()), line.bright_red());
+                    } else {
+                        println!("{} {}", box_color("│ ".into()), line.bright_red());
+                    }
+                }
+            }
         } else {
             // Non-TTY (like GitHub Actions): just print the result line
             println!("{} {}", status_colored, format!("(completed in {:.2}s)", duration_sec).dimmed());
+            for line in &failed_lines {
+                println!("    {}", line.bright_red());
+            }
         }
 
         match outcome.status {
@@ -423,6 +460,7 @@ fn run_case(
         .output()
         .with_context(|| format!("failed to run {}", case.name))?;
     let duration = start.elapsed().as_millis();
+    let failed_details = extract_failed_subtests(&output.stdout);
 
     log_file.write_all(&output.stdout)?;
     log_file.write_all(&output.stderr)?;
@@ -440,6 +478,7 @@ fn run_case(
         duration_ms: duration,
         exit_code: output.status.code(),
         log_path: log_path.to_path_buf(),
+        failed_details,
     })
 }
 
@@ -542,4 +581,94 @@ fn sanitize_case_name(name: &str) -> String {
         .collect::<String>()
         .trim_matches('-')
         .to_string()
+}
+
+fn extract_failed_subtests(stdout: &[u8]) -> Option<Vec<FailedSubCaseDetail>> {
+    let content = String::from_utf8_lossy(stdout);
+    let fail_pattern =
+        Regex::new(r"(?m)^test\s+([^\s]+)\s+\.\.\.\s+FAILED\b").expect("valid regex");
+    let section_pattern =
+        Regex::new(r"^----\s+([^\s]+)\s+stdout\s+----").expect("valid regex");
+
+    let mut sections: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current_name: Option<String> = None;
+    for line in content.lines() {
+        if let Some(caps) = section_pattern.captures(line) {
+            let name = caps[1].to_string();
+            current_name = Some(name.clone());
+            sections.entry(name).or_default();
+            continue;
+        }
+        if line.starts_with("failures:") {
+            current_name = None;
+            continue;
+        }
+        if let Some(name) = current_name.as_ref() {
+            if let Some(body) = sections.get_mut(name) {
+                body.push(line.to_string());
+            }
+        }
+    }
+
+    let mut failures = Vec::new();
+    let mut seen = HashSet::new();
+    for caps in fail_pattern.captures_iter(&content) {
+        let name = caps[1].to_string();
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let summary = sections
+            .get(&name)
+            .map(|body| summarize_failure_body(body))
+            .unwrap_or_else(|| "see log for details".to_string());
+        failures.push(FailedSubCaseDetail { name, summary });
+    }
+
+    if failures.is_empty() {
+        None
+    } else {
+        Some(failures)
+    }
+}
+
+fn format_failed_subtest_lines(details: &[FailedSubCaseDetail]) -> Vec<String> {
+    if details.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    lines.push(format!(" Failed tests ({}):", details.len()));
+    for detail in details {
+        let suffix = if detail.summary.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", detail.summary)
+        };
+        lines.push(format!("   - {}{}", detail.name, suffix));
+    }
+    lines
+}
+
+fn summarize_failure_body(lines: &[String]) -> String {
+    let mut fallback = String::new();
+    for raw in lines {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if fallback.is_empty() {
+            fallback = trimmed.to_string();
+        }
+        let is_meta = trimmed.starts_with("thread '")
+            || trimmed.starts_with("note:")
+            || trimmed.starts_with("stack backtrace:")
+            || trimmed.starts_with("Backtrace:");
+        if !is_meta {
+            return trimmed.to_string();
+        }
+    }
+    if fallback.is_empty() {
+        "see log for details".into()
+    } else {
+        fallback
+    }
 }
