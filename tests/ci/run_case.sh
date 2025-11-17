@@ -193,6 +193,12 @@ if ! python3 "${VM_RUNNER}" \
   --command-timeout "${COMMAND_TIMEOUT}" \
   2> >(tee "${VM_STDERR}" >&2) | tee "${VM_STDOUT}"; then
   echo "[${CASE_LABEL}] 虚拟机执行失败，详见 ${VM_STDERR}" >&2
+  # Your change: find the exact error case
+  FAILED_TESTS=$(grep -E '^test .* \.\.\. FAILED$' "${VM_STDOUT}" || true)
+  if [[ -n "${FAILED_TESTS}" ]]; then
+    echo "[${CASE_LABEL}] 发现以下失败的测试用例：" >&2
+    echo "${FAILED_TESTS}" >&2
+  fi
   exit 1
 fi
 
