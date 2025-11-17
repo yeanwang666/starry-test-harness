@@ -164,4 +164,3 @@ timeout_secs = 1200  # 单独为这个用例设置 20 分钟超时
 - `STARRYOS_ROOT`: StarryOS 本地克隆路径。
 
 这些环境变量可以在 workflow 文件中修改，以适配不同的测试目标。
-下一步
