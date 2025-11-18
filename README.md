@@ -49,12 +49,20 @@
 
 这个流程确保了每次测试都在一个**干净、隔离**的环境中进行，避免了用例间的相互干扰。
 
-### 只跑指定用例（CASES 过滤）
-- 环境变量 `CASES` 支持用例过滤，值用逗号或空格分隔，匹配的是 `suite.toml` 里的 `[[cases]].name`，**不是**二进制或目录名。
-  - 示例：` make stress-test run CASES=cpu-saturator-demo`
-  - 多个：` make stress-test run CASES="ptrace-smoke cpu-saturator-demo" `
-- 名称会经过 slug 化（大小写忽略，非字母数字转 `-`），`ptrace-smoke` 与 `ptrace smoke` 等价。
-- 不设 `CASES` 时默认运行 suite 中定义的全部用例。
+
+### Stress 套件快速参考
+-目前先把一些边迭代边开发的测试放到stress里，以便CI test稳定为主线测试服务，一般每个测试都是一个cargo工程，里面自己添加需要的文件等，自己写测试逻辑。可以参考目录下别人的文件，需要遵守下面添加stress测试用例的规则。
+- 路径：`tests/stress/`
+  - 运行器：`tests/stress/run_case.sh`。负责编译单个用例、复制 rootfs 模板、用 debugfs 写入 `/usr/tests/<case_id>`，启动 QEMU 并解析 JSON 输出。
+  - 套件清单：`tests/stress/suite.toml`。
+  - 用例目录：`tests/stress/cases/<case_id>/`，每个都是独立 Cargo 工程。
+- 单独运行某个用例：
+  - 推荐：`CASES=<suite.toml里的name> make stress-test run`（例如 `CASES=sqlite-fixture`）。
+  - 直接脚本：`tests/stress/run_case.sh <case_id> [args...]`（默认无 CASES 过滤，确保 rootfs 模板存在）。
+- 输出与日志：
+  - suite 日志目录：`logs/stress/<timestamp>/`
+  - 用例日志：`logs/stress/<timestamp>/cases/<case>.log`
+  - 结果 JSON：`logs/stress/<timestamp>/artifacts/<case>/result.json`
 
 ## 如何添加测试用例
 
