@@ -34,7 +34,8 @@ if [[ -z "${WORKSPACE:-}" || -z "${WHITELIST:-}" ]]; then
 fi
 
 mkdir -p "${OUTPUT_DIR}"
-CLONE_DIR="${OUTPUT_DIR}/cloned_repos"
+# 将白名单仓库同步到 workspace/local_crates，方便与主仓一起统计
+CLONE_DIR="${WORKSPACE}/local_crates"
 mkdir -p "${CLONE_DIR}"
 
 echo "[code-stats] workspace: ${WORKSPACE}"
