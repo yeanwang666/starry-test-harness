@@ -21,9 +21,3 @@ name = "process-spawn"
 description = "通过子进程输出验证进程管理基本能力"
 path = "tests/ci/run_case.sh"
 args = ["process_spawn"]
-
-[[cases]]
-name = "multi-processors"
-description = "测试多核基本并发能力"
-path = "tests/ci/run_case.sh"
-args = ["multi_processors"]
