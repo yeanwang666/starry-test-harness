@@ -111,23 +111,27 @@
 
 ### 添加 CI 测试用例与CI 迭代测试用例
 
-套件的所有用例共享同一个 `Cargo` 工程 (`tests/ci/cases/`)，适合小型的、可以快速编译的单元测试或冒烟测试。下面以ci文件夹中为例：
+套件的所有用例共享同一个 `Cargo` 工程 (`tests/ci/cases/`)，适合小型的、可以快速编译的单元测试或冒烟测试，目前用于主线开发的ci测试，所有提到starryos的PR必须通过该系列测试。`ci-test-iter` 也沿用同款模板脚本，区别只是生成路径、注册路径不同，用于目前暂时不能通过的测试，专门方便测试。
 
 1.  **生成骨架 (推荐)**:
-    执行 `templates/add_ci_case.sh` 脚本可以快速生成一个测试用例模板。
+    - 对于 CI 套件：执行 `templates/add_ci_case.sh` 可以在 `tests/ci/cases/tests/` 下生成骨架。
+    - 对于 CI 迭代套件：执行 `templates/add_ci_iter_case.sh` 会在 `tests/ci-test-iter/cases/tests/` 下生成骨架。
 
     ```bash
     # 用法: ./templates/add_ci_case.sh <case_name>
     ./templates/add_ci_case.sh my_ci_test
+
+    # 对迭代套件:
+    ./templates/add_ci_iter_case.sh my_ci_iter_test
     ```
-    该命令会在 `tests/ci/cases/tests/` 目录下创建一个 `my_ci_test.rs` 文件，并提示下一步需要做的修改。
+    会在对应套件目录创建 `tests/<suite>/cases/tests/<case>.rs`，并提示后续注册步骤。
 
 2.  **实现测试逻辑**:
     打开新生成的 `my_ci_test.rs` 文件，使用 `#[test]` 函数编写断言。
     > **注意**: CI 用例完全依赖 Rust 原生测试框架，断言失败会自动标记为失败，无需手动打印 `PASS/FAIL`。
 
 3.  **在 `suite.toml` 中注册**:
-    根据上一步脚本的提示，打开 `tests/ci/suite.toml` 并添加对应的 `[[cases]]` 条目。
+    根据上一步脚本的提示，在 `tests/ci/suite.toml` 或 `tests/ci-test-iter/suite.toml` 中添加 `[[cases]]` 条目。
 
     ```toml
     [[cases]]
