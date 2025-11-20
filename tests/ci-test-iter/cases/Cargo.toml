@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 test-utils = { path = "../../ci/test-utils" }
+libc = "0.2"
