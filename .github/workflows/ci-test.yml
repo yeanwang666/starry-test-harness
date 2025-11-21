@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARCH: aarch64
-      STARRYOS_REMOTE: https://github.com/Starry-OS/StarryOS.git
+      STARRYOS_REMOTE: https://github.com/kylin-x-kernel/StarryOS.git
       STARRYOS_REF: main
       STARRYOS_ROOT: ${{ github.workspace }}/.cache/StarryOS
     steps:
