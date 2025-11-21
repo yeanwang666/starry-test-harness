@@ -129,6 +129,7 @@ dependencies = [
 name = "ci-test-iter-cases"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "test-utils",
 ]
 

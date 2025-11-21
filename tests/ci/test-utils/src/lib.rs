@@ -1,3 +1,5 @@
+pub mod macros;
+
 use anyhow::{anyhow, Context, Result};
 use rand::{distributions::Alphanumeric, Rng};
 use std::{
